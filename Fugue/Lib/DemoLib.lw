@@ -1,0 +1,119 @@
+import Fugue.AWS as AWS
+import Fugue.AWS.EC2 as EC2
+
+
+resources: (
+  demo-vpc,
+  public-10-0-1-0,
+  public-10-0-2-0,
+  demo-igw,
+  public-route,
+  public-route-table,
+  demo-elb-sg,
+  demo-app-sg,
+  inet-HTTP,
+  inet-HTTPS,
+  inet-SSH,
+  inet-FLASK
+)
+
+
+# Define the VPC
+demo-vpc: EC2.Vpc.new {
+  cidrBlock: "10.0.0.0/16",
+  tags: [
+    AWS.tag("Name", "ADDO demo VPC")
+  ],
+  region: AWS.Us-east-1
+}
+
+# Define 2 public subnets
+public-10-0-1-0: EC2.Subnet.new {
+  cidrBlock: '10.0.1.0/24',
+  vpc: demo-vpc,
+  availabilityZone: AWS.A,
+  mapPublicIpOnLaunch: True,
+  defaultForAz: False
+}
+
+public-10-0-2-0: EC2.Subnet.new {
+  cidrBlock: '10.0.2.0/24',
+  vpc: demo-vpc,
+  availabilityZone: AWS.B,
+  mapPublicIpOnLaunch: True,
+  defaultForAz: False
+}
+
+# Define IGW
+demo-igw: EC2.InternetGateway.new {
+  vpc: demo-vpc
+}
+
+# Define route tables
+public-route: EC2.Route.new {
+  destinationCidrBlock: "0.0.0.0/0",
+  target: EC2.GatewayTarget(demo-igw)
+}
+
+public-route-table: EC2.RouteTable.new {
+  vpc: demo-vpc,
+  routes: [public-route],
+  associations: [
+    public-10-0-1-0,
+    public-10-0-2-0
+  ]
+}
+
+### Define SECURITY GROUPS ###
+demo-elb-sg: EC2.SecurityGroup.new {
+  description: "Allow http/s traffic from the internet",
+  ipPermissions: [
+    inet-HTTP,
+    inet-HTTPS
+  ],
+  ipPermissionsEgress: None,
+  vpc: demo-vpc
+}
+
+demo-app-sg: EC2.SecurityGroup.new {
+  description: "Allow traffic from the internet facing SG",
+  ipPermissions: [
+    EC2.IpPermission.tcp(5000, EC2.IpPermission.Target.securityGroup(demo-elb-sg)),
+  ],
+  vpc: demo-vpc
+}
+
+### Define INGRESS RULES ###
+### THESE INGRESS RULES ARE WORLD OPEN! LOCK DOWN BEFORE ACTUALLY DEPLOYING!!!!! ###
+inet-HTTP: EC2.IpPermission.http(EC2.IpPermission.Target.all)
+
+# This is the long form of the above
+#inet-HTTP: EC2.IpPermission.new {
+#  ipProtocol: "tcp",
+#  fromPort: 80,
+#  toPort: 5000,
+#  target: EC2.IpRanges([
+#    EC2.IpRange(cidrIp: "0.0.0.0/0")
+#  ])
+#}
+
+inet-HTTPS: EC2.IpPermission.new {
+  ipProtocol: "tcp",
+  fromPort: 443,
+  toPort: 443,
+  target: EC2.IpRanges([
+    EC2.IpRange(cidrIp: "0.0.0.0/0")
+  ])
+}
+
+inet-SSH: EC2.IpPermission.new {
+  ipProtocol: "tcp",
+  fromPort: 22,
+  toPort: 22,
+  target: EC2.IpRanges([
+    EC2.IpRange(cidrIp: "0.0.0.0/0")
+  ])
+}
+
+# Direct for my debug
+inet-FLASK: EC2.IpPermission.tcp(5000, EC2.IpPermission.Target.ipRanges(["0.0.0.0/0"]))

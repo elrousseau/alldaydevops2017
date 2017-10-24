@@ -1,0 +1,48 @@
+composition
+
+import Fugue.AWS as AWS
+import Fugue.AWS.EC2 as EC2
+import Fugue.AWS.AutoScaling as AutoScaling
+import Fugue.AWS.ELB as ELB
+
+# Library with our VPC and ELBs
+import Lib.DemoLib as Demo
+
+network: Demo.resources
+
+jumpbox: EC2.Instance.new {
+  instanceType: EC2.T2_micro,
+  subnet: Demo.public-10-0-1-0,
+  image: "ami-8c1be5f6",
+  keyName: "admin-login",
+  securityGroups: [inet-SSH],
+  monitoring: False
+}
+
+inet-SSH: EC2.SecurityGroup.new {
+  description: "Allow SSH traffic from the Internet",
+  ipPermissions: [
+    Demo.inet-SSH
+  ],
+  ipPermissionsEgress: None,
+  vpc: Demo.demo-vpc
+}
+
+# Define ELB - get values from environment variables
+blue-asg-elb: ELB.LoadBalancer.external(Optional.unpackOrError(String.getEnv("BLUE_ASG_TARGET"),"No BLUE_ASG_TARGET defined"), AWS.Us-east-1)
+green-asg-elb: ELB.LoadBalancer.external(Optional.unpackOrError(String.getEnv("GREEN_ASG_TARGET"),"No GREEN_ASG_TARGET defined"), AWS.Us-east-1)
+
+green-asg: AutoScaling.AutoScalingGroup.new {
+    subnets: [Demo.public-10-0-1-0, Demo.public-10-0-2-0],
+    loadBalancers: [green-asg-elb],
+    minSize: 1,
+    maxSize: 3,
+    healthCheckType: AutoScaling.Ec2,
+    launchConfiguration: AutoScaling.LaunchConfiguration.new {
+        image: Optional.unpackOrError(String.getEnv("GREEN_AMI"),"Missing GREEN_AMI environment variable"),
+        securityGroups: [Demo.demo-app-sg],
+        instanceType: EC2.T2_micro,
+        associatePublicIpAddress: True
+    },
+    defaultCooldown: 50
+}
